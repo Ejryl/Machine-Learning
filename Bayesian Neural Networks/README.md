@@ -120,6 +120,6 @@ Image('E_dist.png')
 
 
 
-![png](output_6_1.png)
+![png](E_dist.png)
 
 
