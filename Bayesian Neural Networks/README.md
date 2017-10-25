@@ -1,7 +1,6 @@
 
 ## Bayesian Neural Network test
 
-
 ```python
 # import the libraries
 import keras
@@ -21,12 +20,10 @@ from IPython.display import Image
 boston = load_boston()
 ```
 
-
 ```python
 # split the Boston Housing dataset
 X_train, X_test, y_train, y_test = train_test_split(boston.data, boston.target, test_size=0.25, random_state=42)
 ```
-
 
 ```python
 nodes = [64, 64, 64, 64, 1]
@@ -58,22 +55,13 @@ adam_optimizer = keras.optimizers.adam(lr=0.001, beta_1=0.80)
 model.compile(loss='mean_squared_error', optimizer=adam_optimizer)
 ```
 
-
 ```python
 # train the model
 model.fit(x=X_train, y=y_train, verbose=0, batch_size=256, epochs=20000, callbacks=[es])
 ```
 
     Epoch 00902: early stopping
-
-
-
-
-
     <keras.callbacks.History at 0x120356940>
-
-
-
 
 ```python
 # evaluate the model
@@ -81,14 +69,7 @@ model.evaluate(x=X_test, y=y_test)
 ```
 
      32/127 [======>.......................] - ETA: 0s
-
-
-
-
     24.931478094866897
-
-
-
 
 ```python
 # define the index of the example
@@ -115,10 +96,6 @@ Image('E_dist.png')
 
     Prediction: 12.49
     Target: 15.1
-
-
-
-
 
 ![png](E_dist.png)
 
