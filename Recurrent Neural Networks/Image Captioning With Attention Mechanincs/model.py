@@ -5,20 +5,24 @@ import torchvision.models as models
 import numpy as np
 
 class EncoderCNN(nn.Module):
-    def __init__(self, embed_size):
+    def __init__(self, embed_size = 1024):
         super(EncoderCNN, self).__init__()
         
-        resnet = models.resnet50(pretrained=True)
-        for param in resnet.parameters():
+        # get the pretrained vgg19 model
+        vgg = models.vgg19(pretrained=True)
+        
+        # freeze the gradients to avoid training
+        for param in vgg.parameters():
             param.requires_grad_(False)
         
-        modules = list(resnet.children())[:-1]
-        self.resnet = nn.Sequential(*modules)
-        self.embed = nn.Linear(resnet.fc.in_features, embed_size)
-
+        # transfer learning procedure
+        modules = list(vgg.children())[0][:34]
+        self.vgg = nn.Sequential(*modules)
+        self.embed = nn.Linear(in_features=196, out_features = embed_size)
+    
     def forward(self, images):
-        features = self.resnet(images)
-        features = features.view(features.size(0), -1)
+        features = self.vgg(images)
+        features = features.view(features.size(0), 512, -1)
         features = self.embed(features)
         return features
     
@@ -35,14 +39,15 @@ class DecoderRNN(nn.Module):
         # define the embedding layer for the inputs
         self.embed = nn.Embedding(num_embeddings=self.vocab_size, embedding_dim=self.embed_size)
         
-        # define the main lstm cell
-        self.lstm_cell = nn.LSTMCell(input_size=self.embed_size, hidden_size=self.hidden_size)
+        # define the main lstm cells
+        self.lstm_cell_1 = nn.LSTMCell(input_size=self.embed_size, hidden_size=self.hidden_size)
+        self.lstm_cell_2 = nn.LSTMCell(input_size=self.hidden_size, hidden_size=self.hidden_size)
         
-        # define the embedding layer for the inputs
-        self.fc_in = nn.Linear(in_features=self.vocab_size, out_features=self.hidden_size)
+        self.context_fc = nn.Linear(in_features=2048, out_features=2048)  # Lz
+        self.hidden_fc = nn.Linear(in_features=2048, out_features=2048)  # Lh
         
         # define the fully connected layer for output
-        self.fc_out = nn.Linear(in_features=self.hidden_size, out_features=self.vocab_size)
+        self.fc_out = nn.Linear(in_features=2048, out_features=self.vocab_size)
         
         # dropout layer
         self.dropout = nn.Dropout(0.5)
@@ -50,43 +55,73 @@ class DecoderRNN(nn.Module):
     def forward(self, features, captions):
         
         """
-            Features are the (batch_size, feature_dim) dimensions
+            Features are the (batch_size, 512, 1024) dimensions
             Captions are the (batch_size, caption_length) dimensions
         """
         
         # init the hidden state to zeros
-        hidden_state = torch.zeros((captions.size(0), self.hidden_size)).cuda()
+#         hidden_state = torch.uniform((captions.size(0), self.hidden_size)).cuda()
         
-        # init the cell state to zeros
-        cell_state = torch.zeros((captions.size(0), self.hidden_size)).cuda()
-        
+        hidden_state_1 = torch.mean(features, dim=1)
+        hidden_state_2 = torch.empty((captions.size(0), self.hidden_size)).uniform_().cuda()
+    
+#         # init the cell state to zeros
+#         cell_state = torch.uniform((captions.size(0), self.hidden_size)).cuda()
+        cell_state_1 = torch.mean(features, dim=1)
+        cell_state_2 = torch.empty((captions.size(0), self.hidden_size)).uniform_().cuda()
+    
         # define the output tensor placeholder
         outputs = torch.empty((captions.size(0), captions.size(1), self.vocab_size)).cuda()
         
         # embed the captions
         captions = self.embed(captions)
-        
+
         # pass the caption word by word
         for t in range(captions.size(1)):
-            
-            # for the first step the input is the features of the image
+
+            # for the first time step the input is the <start> token
             if t == 0:
+                           
+                hidden_state_1, cell_state_1 = self.lstm_cell_1(captions[:, t, :], (hidden_state_1, cell_state_1))
+                hidden_state_2, cell_state_2 = self.lstm_cell_2(hidden_state_1, (hidden_state_2, cell_state_2))
                 
-                # use the feature vector as an input               
-                hidden_state, cell_state = self.lstm_cell(features, (hidden_state, cell_state))
-                                  
+                S = hidden_state_2
+                
             else:
                 
-                # for the second+ step we pass the caption
+                # embed the previous output
+                inputs = self.embed(torch.argmax(out, dim=1))
                 
-                # pass the word features into the lstm
-                hidden_state, cell_state = self.lstm_cell(captions[:, (t-1), :], (hidden_state, cell_state))
+                # for the second+ step we pass the embedded context vector
+                hidden_state_1, cell_state_1 = self.lstm_cell_1(inputs, (hidden_state_1, cell_state_1))
+                hidden_state_2, cell_state_2 = self.lstm_cell_2(hidden_state_1, (hidden_state_2, cell_state_2))
+                
+                
+                # - - define the attention mechanics - -
+                # raw alpha scores as dot product attention mechanics
+                alpha_raw = torch.bmm(hidden_state_2.unsqueeze(1), features.permute(0, 2, 1))
+
+                # alpha scores
+                alpha = F.softmax(alpha_raw, dim=2)
+
+                # pre-context: multiply each image representation by a score
+                pre_context = torch.mul(features.permute(0, 2, 1), alpha)
+
+                # context vector: sum along the image rep dimension to identify the dominant 
+                # image representation
+                context = torch.sum(pre_context, dim=2)
+
+                LzZt = self.context_fc(context)
+                LhHt = self.hidden_fc(hidden_state_2)
+                E = self.embed(torch.argmax(out, dim=1))
+                S = LzZt + LhHt + E
             
-            # pass the hidden through the dropout layer
-            hidden_state = self.dropout(hidden_state)
-            
+            # concatenate the context vector and the hidden state
+            #  - - - try concatinating with the cell state? - - - 
+#             concat = torch.cat((context, hidden_state_2), dim=1)
+                
             # pass the output of the lstm cell through the fully connected layer
-            out = self.fc_out(hidden_state)
+            out = self.fc_out(S)
             
             # construct the outputs vector
             outputs[:, t, :] = out
