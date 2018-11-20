@@ -14,14 +14,13 @@ class EncoderCNN(nn.Module):
         
         # freeze the gradients to avoid training
         for i, param in enumerate(vgg.parameters()):
-            if i < 35:
-                param.requires_grad_(False)
+            param.requires_grad_(False)
         
         # transfer learning procedure
         # take everything before the 34th layer of the vgg
         modules = list(vgg.children())[0][:49]
         self.vgg = nn.Sequential(*modules)
-        self.embed = nn.Linear(in_features=196, out_features = embed_size)
+        self.embed = nn.Linear(in_features=196, out_features=embed_size)
     
     def forward(self, images):
         features = self.vgg(images)
@@ -61,7 +60,7 @@ class DecoderRNN(nn.Module):
         self.softmax = nn.Softmax(dim=1)
     
         # dropout layer
-        self.drop = nn.Dropout(p=0.5)
+        self.drop = nn.Dropout(p=0.3)
     
     def forward(self, features, captions):
         
@@ -89,7 +88,6 @@ class DecoderRNN(nn.Module):
                 hidden_state_1, cell_state_1 = self.lstm_cell_1(captions_embed[:, t, :], (hidden_state_1, cell_state_1))
                 hidden_state_2, cell_state_2 = self.lstm_cell_2(hidden_state_1, (hidden_state_2, cell_state_2))
                   
-
             else:
                 
                 hidden_state_1, cell_state_1 = self.lstm_cell_1(captions_embed[:, t, :], (hidden_state_1, cell_state_1))
